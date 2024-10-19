@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.11.35312.102
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StarshipTelemetryExtractor", "StarshipTelemetryExtractor.csproj", "{6EAF1815-2542-4A93-A050-0EFEF7D714EC}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{6EAF1815-2542-4A93-A050-0EFEF7D714EC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6EAF1815-2542-4A93-A050-0EFEF7D714EC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6EAF1815-2542-4A93-A050-0EFEF7D714EC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6EAF1815-2542-4A93-A050-0EFEF7D714EC}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {41C14A83-7A6E-4FAF-B14C-F91442B63F24}
+	EndGlobalSection
+EndGlobal
