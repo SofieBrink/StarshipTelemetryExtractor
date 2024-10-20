@@ -87,7 +87,7 @@ namespace StarshipTelemetryExtractor
             float step = (knownValueAfter - knownValueBefore) / (nullCount + 1);
             for (int i = 0; i < nullCount; i++)
             {
-                rCorrectedData[pStart + i] = (pRawData[pStart + i].fileName, knownValueBefore + (int)(step * (i + 1)));
+                rCorrectedData[pStart + i] = (pRawData[pStart + i].fileName, knownValueBefore + (int) (step * (i + 1)));
             }
         }
 
@@ -96,21 +96,25 @@ namespace StarshipTelemetryExtractor
             List<int> lastValues = new List<int>();
             List<(int oldValue, int index)> outlierIndexes = new List<(int, int)>();
 
-            int allowedErrorMargin = 1500;
+            double allowedErrorMarginMultiplier = 10;
             for (int i = 0; i < pRawData.Count; i++)
             {
-                if (lastValues.Count == 0) { lastValues.Add((int)pRawData[i].value!); continue; } // if the first value is an outlier, there's nothing we can do.
+                if (lastValues.Count == 0 && pRawData.Count > 1) { lastValues.Add((int) pRawData[i + 1].value! - (int) pRawData[i].value!); continue; } // if the first value is an outlier, there's nothing we can do.
                 var movingAverage = lastValues.Average();
+                int lastValidIndex = i - 1;
+                while (lastValidIndex >= 0 && outlierIndexes.Any(outlier => outlier.index == lastValidIndex)) lastValidIndex--;
+                if (lastValidIndex < 0) continue;
+                var delta = ((int) pRawData[i].value! - (int) pRawData[lastValidIndex].value!) / (i - lastValidIndex);
 
-                if (Math.Abs(movingAverage - (int)pRawData[i].value!) > allowedErrorMargin)
+                if (Math.Abs(Math.Abs(movingAverage) - Math.Abs(delta)) > Math.Max(Math.Abs(movingAverage), 0.5) * allowedErrorMarginMultiplier)
                 {
-                    outlierIndexes.Add(((int)pRawData[i].value!, i));
+                    outlierIndexes.Add(((int) pRawData[i].value!, i));
                 }
                 else
                 {
-                    lastValues.Add((int)pRawData[i].value!);
+                    lastValues.Add(delta);
                 }
-                if (lastValues.Count > 20) lastValues.RemoveAt(0);
+                if (lastValues.Count > 30) lastValues.RemoveAt(0); // magic 30fps number, keep one second of data stored
             }
 
             int start = -1, end = -1;
