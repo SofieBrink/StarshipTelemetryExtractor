@@ -1,4 +1,7 @@
-﻿using Patagames.Ocr;
+﻿using Emgu.CV;
+using Patagames.Ocr;
+using System.Data;
+using System.Diagnostics;
 using System.Numerics;
 
 namespace StarshipTelemetryExtractor
@@ -19,6 +22,7 @@ namespace StarshipTelemetryExtractor
               , { "StarshipAltitude", new Vector4(1542, 947, 90, 33) }
               , { "StarshipVelocity", new Vector4(1542, 912, 90, 33) }
             };
+            Dictionary<string, (List<(string fileName, int? value)> rawData, List<(string fileName, int? value)> correctedData)> TelemetryData;
 
             if (!Directory.Exists(InputPath)) { Console.WriteLine($"Inputpath: {InputPath} is invalid"); return; }
             if (!Directory.Exists(OutputPath)) { Console.WriteLine($"Outputpath: {OutputPath} is invalid"); return; }
@@ -36,6 +40,7 @@ namespace StarshipTelemetryExtractor
                 }
                 if (getFrames)
                 {
+                    Console.WriteLine("Removing old frames...");
                     Directory.Delete(OutputPath + "\\Frames", true);
                 }
             }
@@ -83,41 +88,90 @@ namespace StarshipTelemetryExtractor
                 foreach (var telemPos in telemetryPositions)
                 {
                     Directory.CreateDirectory(OutputPath + $"\\Frames\\{telemPos.Key}");
-                    var ffmpegArgs = $"-ss 228 -i \"{videoFile}\" -vf \"crop={telemPos.Value.Z}:{telemPos.Value.W}:{telemPos.Value.X}:{telemPos.Value.Y},fps={fps}\" -t {secondsToGrab} \"{OutputPath}/Frames/{telemPos.Key}/frame_%04d.png\"";
+                    var ffmpegArgs = $"-ss {startingSecond} -i \"{videoFile}\" -vf \"crop={telemPos.Value.Z}:{telemPos.Value.W}:{telemPos.Value.X}:{telemPos.Value.Y},fps={fps}\" -t {secondsToGrab} \"{OutputPath}/Frames/{telemPos.Key}/frame_%05d.png\"";
                     ffmpegs.Add(FFmpegWrapper.RunFFmpegAsync(ffmpegArgs));
                 }
 
                 int[] results = Task.WhenAll(ffmpegs).GetAwaiter().GetResult();
                 Console.WriteLine("FFmpeg finished processing frames");
             }
-            
 
-            var ocr = OcrApi.Create();
-            ocr.Init();
-
-            ScreenReader.GetTelemetryData(ocr, InputPath, out var rawData, out var correctedData);
-
-            using (StreamWriter writer = new StreamWriter(OutputPath + "\\DataOutput.csv"))
+            bool getRawData;
+            if (Directory.GetFiles(OutputPath).Contains(OutputPath + "\\RawData.csv"))
             {
-                writer.WriteLine("fileName,rawValue,correctedValue");
-
-                for (int i = 0; i < rawData.Count; i++)
+                Console.WriteLine("Found existing raw data in folder, would you like to overwrite it? (y/N)");
+                while (true)
                 {
-                    string fileName = rawData[i].fileName;
-                    string rawValue = rawData[i].value?.ToString() ?? "";
-                    string correctedValue = correctedData[i].value?.ToString() ?? "";
-
-                    writer.WriteLine($"{fileName},{rawValue},{correctedValue}");
+                    var tmp = Console.ReadLine();
+                    if (string.IsNullOrWhiteSpace(tmp) || tmp == "n") { getRawData = false; break; }
+                    else if (tmp == "y") { getRawData = true; break; }
+                    else Console.WriteLine("Invalid input!");
+                }
+                if (getRawData)
+                {
+                    File.Delete(OutputPath + "\\RawData.csv");
                 }
             }
+            else { getRawData = true; }
 
-            ocr.Dispose();
+            if (getRawData)
+            {
+                var ocr = OcrApi.Create();
+                ocr.Init();
+
+                TelemetryData = new Dictionary<string, (List<(string fileName, int? value)> rawData, List<(string fileName, int? value)> correctedData)>();
+                foreach (var kvp in telemetryPositions)
+                {
+                    ScreenReader.GetTelemetryData(ocr, OutputPath + $"\\Frames\\{kvp.Key}", out var rawData, out var correctedData);
+                    TelemetryData.Add(kvp.Key, (rawData, correctedData));
+                }
+
+                ocr.Dispose();
+
+                Console.WriteLine("Formatting data...");
+
+                var headerRow = "FileName";
+                var rows = new List<string>();
+                var uniqueFileNames = TelemetryData
+                    .SelectMany(data => data.Value.rawData.Concat(data.Value.correctedData))
+                    .Select(file => file.fileName)
+                    .Distinct()
+                    .OrderBy(x => x)
+                    .ToList();
+                foreach (var kvp in TelemetryData)
+                {
+                    headerRow += ", " + kvp.Key + "_Raw";
+                    headerRow += ", " + kvp.Key + "_Corrected";
+                }
+                foreach (var fileName in uniqueFileNames)
+                {
+                    var row = fileName;
+                    foreach (var kvp in TelemetryData)
+                    {
+                        var rawValue = kvp.Value.rawData.FirstOrDefault(v => v.fileName == fileName, ("", null)).value;
+                        var correctedValue = kvp.Value.correctedData.FirstOrDefault(v => v.fileName == fileName, ("", null)).value;
+                        row += ", " + (rawValue != null ? rawValue.Value : "");
+                        row += ", " + (correctedValue != null ? correctedValue.Value : "");
+                    }
+                    rows.Add(row);
+                }
+
+                Console.WriteLine("Writing data to RawData.csv...");
+                using (StreamWriter writer = new StreamWriter(OutputPath + "\\RawData.csv"))
+                {
+                    writer.WriteLine(headerRow);
+                    foreach (var row in rows)
+                    {
+                        writer.WriteLine(row);
+                    }
+                }
+            }
+            else
+            {
+                // todo read from csv
+            }
 
             Console.WriteLine($"Done, took {Math.Round((DateTime.Now - startTime).TotalSeconds, 1)}s including awaiting input.");
         }
-
-
-
-        
     }
 }

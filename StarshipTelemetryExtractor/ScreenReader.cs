@@ -52,9 +52,10 @@ namespace StarshipTelemetryExtractor
                 foreach (var entry in failedData)
                 {
                     var correction = oCorrectedData.FirstOrDefault(d => d.fileName == entry.fileName);
-                    Console.WriteLine($"Corrected {entry.fileName} from: \"{entry.value}\" to: {correction.value}");
+                    if (correction.value != null) Console.WriteLine($"Corrected {entry.fileName} from: \"{entry.value}\" to: {correction.value}");
                 }
             }
+            oCorrectedData.RemoveAll(item => item.value == null);
 
             HandleOutliers(oCorrectedData, ref oCorrectedData);
         }
