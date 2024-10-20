@@ -12,10 +12,12 @@ namespace StarshipTelemetryExtractor
         public static void GetTelemetryData(OcrApi pOcr // make this async so we can analyse all threads at once
                                           , string pPath
                                           , out List<(string fileName, int? value)> oRawData
-                                          , out List<(string fileName, int? value)> oCorrectedData)
+                                          , out List<(string fileName, int? value)> oCorrectedData
+                                          , out List<string> oLogLines)
         {
             oRawData = new List<(string fileName, int? value)>();
             oCorrectedData = new List<(string fileName, int? value)>();
+            oLogLines = new List<string>();
             List<(string fileName, string? value)> failedData = new List<(string fileName, string? value)>();
 
             if (!Directory.Exists(pPath)) return;
@@ -52,17 +54,18 @@ namespace StarshipTelemetryExtractor
                 foreach (var entry in failedData)
                 {
                     var correction = oCorrectedData.FirstOrDefault(d => d.fileName == entry.fileName);
-                    if (correction.value != null) Console.WriteLine($"Corrected {entry.fileName} from: \"{entry.value}\" to: {correction.value}");
+                    if (correction.value != null) oLogLines.Add($"Corrected {entry.fileName} from: \"{entry.value}\" to: {correction.value}");
                 }
             }
             oCorrectedData.RemoveAll(item => item.value == null);
 
-            HandleOutliers(oCorrectedData, ref oCorrectedData);
+            HandleOutliers(oCorrectedData, ref oCorrectedData, ref oLogLines);
         }
 
         static void CorrectMissingValues(List<(string fileName, int? value)> pRawData, ref List<(string fileName, int? value)> rCorrectedData)
         {
             int start = -1, end = -1;
+            int validCount = 0;
 
             for (int i = 0; i < pRawData.Count; i++)
             {
@@ -72,6 +75,12 @@ namespace StarshipTelemetryExtractor
                 }
                 else if (start != -1)
                 {
+                    if (start == 0 && validCount < 5)
+                    {
+                        validCount++;
+                        continue;
+                    }
+                    else if (start == 0) validCount = 0;
                     end = i;
                     InterpolateValues(pRawData, ref rCorrectedData, start, end);
                     start = end = -1;
@@ -81,18 +90,18 @@ namespace StarshipTelemetryExtractor
 
         static void InterpolateValues(List<(string fileName, int? value)> pRawData, ref List<(string fileName, int? value)> rCorrectedData, int pStart, int pEnd)
         {
-            int knownValueBefore = pStart >= 0 && pRawData[pStart - 1].value != null ? pRawData[pStart - 1].value!.Value : 0;
+            int knownValueBefore = pStart > 0 && pRawData[pStart - 1].value != null ? pRawData[pStart - 1].value!.Value : 0;
             int knownValueAfter = pRawData[pEnd].value!.Value;
             int nullCount = pEnd - pStart;
 
-            float step = (knownValueAfter - knownValueBefore) / (nullCount + 1);
+            float step = (float) (knownValueAfter - knownValueBefore) / (nullCount + 1);
             for (int i = 0; i < nullCount; i++)
             {
                 rCorrectedData[pStart + i] = (pRawData[pStart + i].fileName, knownValueBefore + (int) (step * (i + 1)));
             }
         }
 
-        static void HandleOutliers(List<(string fileName, int? value)> pRawData, ref List<(string fileName, int? value)> rCorrectedData)
+        static void HandleOutliers(List<(string fileName, int? value)> pRawData, ref List<(string fileName, int? value)> rCorrectedData, ref List<string> rLogLines)
         {
             List<int> lastValues = new List<int>();
             List<(int oldValue, int index)> outlierIndexes = new List<(int, int)>();
@@ -139,7 +148,7 @@ namespace StarshipTelemetryExtractor
                 Console.WriteLine($"Found {outlierIndexes.Count} outlier(s), attempting to correct.");
                 foreach (var i in outlierIndexes)
                 {
-                    Console.WriteLine($"Corrected {pRawData[i.index].fileName} from: \"{i.oldValue}\" to: {rCorrectedData[i.index].value}");
+                    rLogLines.Add($"Corrected {pRawData[i.index].fileName} from: \"{i.oldValue}\" to: {rCorrectedData[i.index].value}");
                 }
             }
         }

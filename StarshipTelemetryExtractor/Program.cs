@@ -3,6 +3,7 @@ using Patagames.Ocr;
 using System.Data;
 using System.Diagnostics;
 using System.Numerics;
+using System.Text;
 
 namespace StarshipTelemetryExtractor
 {
@@ -26,6 +27,7 @@ namespace StarshipTelemetryExtractor
 
             if (!Directory.Exists(InputPath)) { Console.WriteLine($"Inputpath: {InputPath} is invalid"); return; }
             if (!Directory.Exists(OutputPath)) { Console.WriteLine($"Outputpath: {OutputPath} is invalid"); return; }
+            if (!File.Exists(OutputPath + "\\Output.log")) File.Delete(OutputPath + "\\Output.log");
 
             bool getFrames;
             if (Directory.GetDirectories(OutputPath).Contains(OutputPath + "\\Frames"))
@@ -120,40 +122,55 @@ namespace StarshipTelemetryExtractor
                 ocr.Init();
 
                 TelemetryData = new Dictionary<string, (List<(string fileName, int? value)> rawData, List<(string fileName, int? value)> correctedData)>();
-                foreach (var kvp in telemetryPositions)
+                foreach (var folder in Directory.GetDirectories(OutputPath + "\\Frames"))
                 {
-                    ScreenReader.GetTelemetryData(ocr, OutputPath + $"\\Frames\\{kvp.Key}", out var rawData, out var correctedData);
-                    TelemetryData.Add(kvp.Key, (rawData, correctedData));
+                    var fileName = Path.GetFileName(folder);
+                    ScreenReader.GetTelemetryData(ocr, folder, out var rawData, out var correctedData, out var tmpLog); // pls async
+                    TelemetryData.Add(fileName, (rawData, correctedData));
+                    using (StreamWriter writer = new StreamWriter(OutputPath + "\\Output.log"))
+                    {
+                        writer.WriteLine(fileName + ":");
+                        foreach (var row in tmpLog)
+                        {
+                            writer.WriteLine(row);
+                        }
+                    }
                 }
 
                 ocr.Dispose();
 
                 Console.WriteLine("Formatting data...");
 
-                var headerRow = "FileName";
+                var headerRow = new StringBuilder("FileName");
                 var rows = new List<string>();
+
                 var uniqueFileNames = TelemetryData
                     .SelectMany(data => data.Value.rawData.Concat(data.Value.correctedData))
                     .Select(file => file.fileName)
                     .Distinct()
                     .OrderBy(x => x)
                     .ToList();
+
                 foreach (var kvp in TelemetryData)
                 {
-                    headerRow += ", " + kvp.Key + "_Raw";
-                    headerRow += ", " + kvp.Key + "_Corrected";
+                    headerRow.Append($", {kvp.Key}_Raw");
+                    headerRow.Append($", {kvp.Key}_Corrected");
                 }
+
                 foreach (var fileName in uniqueFileNames)
                 {
-                    var row = fileName;
+                    var row = new StringBuilder(fileName);
                     foreach (var kvp in TelemetryData)
                     {
-                        var rawValue = kvp.Value.rawData.FirstOrDefault(v => v.fileName == fileName, ("", null)).value;
-                        var correctedValue = kvp.Value.correctedData.FirstOrDefault(v => v.fileName == fileName, ("", null)).value;
-                        row += ", " + (rawValue != null ? rawValue.Value : "");
-                        row += ", " + (correctedValue != null ? correctedValue.Value : "");
+                        var telemetry = kvp.Value;
+
+                        var rawValue = telemetry.rawData.FirstOrDefault(v => v.fileName == fileName, ("", null)).value;
+                        var correctedValue = telemetry.correctedData.FirstOrDefault(v => v.fileName == fileName, ("", null)).value;
+
+                        row.Append($", {rawValue}");
+                        row.Append($", {correctedValue}");
                     }
-                    rows.Add(row);
+                    rows.Add(row.ToString());
                 }
 
                 Console.WriteLine("Writing data to RawData.csv...");
