@@ -90,7 +90,7 @@ namespace StarshipTelemetryExtractor
                 foreach (var telemPos in telemetryPositions)
                 {
                     Directory.CreateDirectory(OutputPath + $"\\Frames\\{telemPos.Key}");
-                    var ffmpegArgs = $"-ss {startingSecond} -i \"{videoFile}\" -vf \"crop={telemPos.Value.Z}:{telemPos.Value.W}:{telemPos.Value.X}:{telemPos.Value.Y},fps={fps}\" -t {secondsToGrab} \"{OutputPath}/Frames/{telemPos.Key}/frame_%05d.png\"";
+                    var ffmpegArgs = $"-ss {startingSecond} -i \"{videoFile}\" -vf \"crop={telemPos.Value.Z}:{telemPos.Value.W}:{telemPos.Value.X}:{telemPos.Value.Y},fps={fps}\" -t {secondsToGrab} \"{OutputPath}/Frames/{telemPos.Key}/frame_%06d.png\"";
                     ffmpegs.Add(FFmpegWrapper.RunFFmpegAsync(ffmpegArgs));
                 }
 
