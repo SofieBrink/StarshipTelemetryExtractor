@@ -9,7 +9,7 @@ namespace StarshipTelemetryExtractor
 {
     public class ScreenReader
     {
-        public static void GetTelemetryData(OcrApi pOcr
+        public static void GetTelemetryData(OcrApi pOcr // make this async so we can analyse all threads at once
                                           , string pPath
                                           , out List<(string fileName, int? value)> oRawData
                                           , out List<(string fileName, int? value)> oCorrectedData)
@@ -81,7 +81,7 @@ namespace StarshipTelemetryExtractor
 
         static void InterpolateValues(List<(string fileName, int? value)> pRawData, ref List<(string fileName, int? value)> rCorrectedData, int pStart, int pEnd)
         {
-            int knownValueBefore = pStart >= 0 ? pRawData[pStart - 1].value!.Value : 0;
+            int knownValueBefore = pStart >= 0 && pRawData[pStart - 1].value != null ? pRawData[pStart - 1].value!.Value : 0;
             int knownValueAfter = pRawData[pEnd].value!.Value;
             int nullCount = pEnd - pStart;
 
