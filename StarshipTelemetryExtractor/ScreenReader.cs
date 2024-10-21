@@ -1,16 +1,16 @@
 ﻿using Emgu.CV.CvEnum;
 using Emgu.CV.Structure;
 using Emgu.CV;
-using Patagames.Ocr;
 using System.Drawing;
 using System.Text.RegularExpressions;
+using Tesseract;
 
 namespace StarshipTelemetryExtractor
 {
     public class ScreenReader
     {
-        public static (TelemetryRecord record, List<string> logLines) GetTelemetryData(OcrApi pOcr // make this async so we can analyse all threads at once
-                                                                                        , string pPath)
+        public static (TelemetryRecord record, List<string> logLines) GetTelemetryData(TesseractEngine pOcr // make this async so we can analyse all threads at once
+                                                                                     , string pPath)
         {
             var logLines = new List<string>();
             var returnRecord = new TelemetryRecord();
@@ -32,7 +32,14 @@ namespace StarshipTelemetryExtractor
                 CvInvoke.BitwiseNot(dilatedImage, invertedImage);
                 Bitmap bitmap = invertedImage.ToBitmap();
 
-                var plaintext = pOcr.GetTextFromImage(bitmap);
+                string plaintext;
+                using (var imgPix = PixConverter.ToPix(bitmap))
+                {
+                    using (var page = pOcr.Process(imgPix, PageSegMode.SingleLine))
+                    {
+                        plaintext = page.GetText();
+                    }
+                }
                 if (plaintext != null) plaintext = Regex.Replace(plaintext, @"\s+", "");
 
                 Console.WriteLine($"Processing: {fileName}; Value: {plaintext}");

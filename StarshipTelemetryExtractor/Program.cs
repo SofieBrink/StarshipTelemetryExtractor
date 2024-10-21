@@ -1,9 +1,5 @@
-﻿using Emgu.CV;
-using Patagames.Ocr;
-using System.Data;
-using System.Diagnostics;
-using System.Numerics;
-using System.Text;
+﻿using System.Numerics;
+using Tesseract;
 
 namespace StarshipTelemetryExtractor
 {
@@ -125,8 +121,11 @@ namespace StarshipTelemetryExtractor
 
             if (getRawData)
             {
-                var ocr = OcrApi.Create();
-                ocr.Init();
+                var ocr = new TesseractEngine(@"C:\Program Files\Tesseract-OCR\tessdata", "eng", EngineMode.Default);
+                ocr.SetVariable("tessedit_numeric_only", "1");
+                ocr.SetVariable("classify_bln_numeric_mode", "1");
+                ocr.SetVariable("load_system_dawg", "0");
+                ocr.SetVariable("load_freq_dawg", "0");
 
                 TelemetryData = new Dictionary<string, TelemetryRecord>();
                 foreach (var folder in Directory.GetDirectories(OutputPath + "\\Frames"))
