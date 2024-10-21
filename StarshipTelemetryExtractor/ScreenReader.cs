@@ -108,38 +108,49 @@ namespace StarshipTelemetryExtractor
 
         static void HandleOutliers(ref TelemetryRecord rTelemetryRecord, ref List<string> rLogLines)
         {
-            var originalData = new List<(string fileName, int? value)>(rTelemetryRecord.correctedData);
-
-            List<int> lastValues = new List<int>();
+            Queue<int> lastValues = new Queue<int>(30); // magic 30fps number, keep one second of data stored
             List<(int oldValue, int index)> outlierIndexes = new List<(int, int)>();
+            HashSet<int> outlierIndexesSet = new HashSet<int>();
 
             double allowedErrorMarginMultiplier = 1;
+
             for (int i = 0; i < rTelemetryRecord.correctedData.Count; i++)
             {
-                if (lastValues.Count == 0 && rTelemetryRecord.correctedData.Count > 1) { lastValues.Add((int) rTelemetryRecord.correctedData[i + 1].value! - (int) rTelemetryRecord.correctedData[i].value!); continue; } // if the first value is an outlier, there's nothing we can do.
-                var movingAverage = lastValues.Average();
+                if (lastValues.Count == 0 && rTelemetryRecord.correctedData.Count > 1)
+                {
+                    lastValues.Enqueue((int) rTelemetryRecord.correctedData[i + 1].value! - (int) rTelemetryRecord.correctedData[i].value!);
+                    continue; // Cannot determine outliers for the first value
+                }
+
+                double movingAverage = lastValues.Average();
+
                 int lastValidIndex = i - 1;
-                while (lastValidIndex >= 0 && outlierIndexes.Any(outlier => outlier.index == lastValidIndex)) lastValidIndex--;
+                while (lastValidIndex >= 0 && outlierIndexesSet.Contains(lastValidIndex))
+                {
+                    lastValidIndex--;
+                }
+
                 if (lastValidIndex < 0) continue;
-                var delta = ((int) rTelemetryRecord.correctedData[i].value! - (int) rTelemetryRecord.correctedData[lastValidIndex].value!);
+
+                int delta = (int)rTelemetryRecord.correctedData[i].value! - (int)rTelemetryRecord.correctedData[lastValidIndex].value!;
 
                 if (Math.Abs(Math.Abs(movingAverage) - Math.Abs(delta)) > Math.Max(Math.Abs(movingAverage * (i - lastValidIndex)), 1) * allowedErrorMarginMultiplier)
                 {
-                    outlierIndexes.Add(((int) originalData[i].value!, i));
+                    outlierIndexes.Add(((int) rTelemetryRecord.correctedData[i].value!, i));
+                    outlierIndexesSet.Add(i);
                 }
                 else
                 {
-                    lastValues.Add(delta);
+                    lastValues.Enqueue(delta);
                 }
-                if (lastValues.Count > 30) lastValues.RemoveAt(0); // magic 30fps number, keep one second of data stored
+
+                if (lastValues.Count > 30) lastValues.Dequeue();
             }
 
             int start = -1, end = -1;
-            var outlierIndexesList = outlierIndexes.Select(i => i.index);
-
-            for (int i = 0; i < rTelemetryRecord.correctedData.Count; i++)
+            foreach (var i in Enumerable.Range(0, rTelemetryRecord.correctedData.Count))
             {
-                if (outlierIndexesList.Contains(i))
+                if (outlierIndexesSet.Contains(i))
                 {
                     if (start == -1) start = i;
                 }
@@ -150,6 +161,7 @@ namespace StarshipTelemetryExtractor
                     start = end = -1;
                 }
             }
+
             if (outlierIndexes.Count > 0)
             {
                 Console.WriteLine($"Found {outlierIndexes.Count} outlier(s), attempting to correct.");
