@@ -9,18 +9,14 @@ namespace StarshipTelemetryExtractor
 {
     public class ScreenReader
     {
-        public static void GetTelemetryData(OcrApi pOcr // make this async so we can analyse all threads at once
-                                          , string pPath
-                                          , out List<(string fileName, int? value)> oRawData
-                                          , out List<(string fileName, int? value)> oCorrectedData
-                                          , out List<string> oLogLines)
+        public static (TelemetryRecord record, List<string> logLines) GetTelemetryData(OcrApi pOcr // make this async so we can analyse all threads at once
+                                                                                        , string pPath)
         {
-            oRawData = new List<(string fileName, int? value)>();
-            oCorrectedData = new List<(string fileName, int? value)>();
-            oLogLines = new List<string>();
+            var logLines = new List<string>();
+            var returnRecord = new TelemetryRecord();
             List<(string fileName, string? value)> failedData = new List<(string fileName, string? value)>();
 
-            if (!Directory.Exists(pPath)) return;
+            if (!Directory.Exists(pPath)) return (new TelemetryRecord(), logLines);
             foreach (var entry in Directory.EnumerateFileSystemEntries(pPath))
             {
                 var fileName = entry.Split('\\').Last();
@@ -41,35 +37,37 @@ namespace StarshipTelemetryExtractor
 
                 Console.WriteLine($"Processing: {fileName}; Value: {plaintext}");
 
-                if (int.TryParse(plaintext, out var output)) oRawData.Add((fileName, output));
-                else { oRawData.Add((fileName, null)); failedData.Add((fileName, plaintext)); }
+                if (int.TryParse(plaintext, out var output)) returnRecord.rawData.Add((fileName, output));
+                else { returnRecord.rawData.Add((fileName, null)); failedData.Add((fileName, plaintext)); }
             }
 
-            oCorrectedData = new List<(string fileName, int? value)>(oRawData);
+            returnRecord.correctedData = new List<(string fileName, int? value)>(returnRecord.rawData);
 
             if (failedData.Count > 0)
             {
                 Console.WriteLine($"Failed to get {failedData.Count} value(s), attempting to correct.");
-                CorrectMissingValues(oRawData, ref oCorrectedData);
+                CorrectMissingValues(ref returnRecord);
                 foreach (var entry in failedData)
                 {
-                    var correction = oCorrectedData.FirstOrDefault(d => d.fileName == entry.fileName);
-                    if (correction.value != null) oLogLines.Add($"Corrected {entry.fileName} from: \"{entry.value}\" to: {correction.value}");
+                    var correction = returnRecord.correctedData.FirstOrDefault(d => d.fileName == entry.fileName);
+                    if (correction.value != null) logLines.Add($"Corrected {entry.fileName} from: \"{entry.value}\" to: {correction.value}");
                 }
             }
-            oCorrectedData.RemoveAll(item => item.value == null);
+            returnRecord.correctedData.RemoveAll(item => item.value == null);
 
-            HandleOutliers(oCorrectedData, ref oCorrectedData, ref oLogLines);
+            HandleOutliers(ref returnRecord, ref logLines);
+
+            return (returnRecord, logLines);
         }
 
-        static void CorrectMissingValues(List<(string fileName, int? value)> pRawData, ref List<(string fileName, int? value)> rCorrectedData)
+        static void CorrectMissingValues(ref TelemetryRecord rTelemetryRecord)
         {
             int start = -1, end = -1;
             int validCount = 0;
 
-            for (int i = 0; i < pRawData.Count; i++)
+            for (int i = 0; i < rTelemetryRecord.rawData.Count; i++)
             {
-                if (pRawData[i].value == null)
+                if (rTelemetryRecord.rawData[i].value == null)
                 {
                     if (start == -1) start = i;
                 }
@@ -82,43 +80,45 @@ namespace StarshipTelemetryExtractor
                     }
                     else if (start == 0) validCount = 0;
                     end = i;
-                    InterpolateValues(pRawData, ref rCorrectedData, start, end);
+                    InterpolateValues(ref rTelemetryRecord, start, end);
                     start = end = -1;
                 }
             }
         }
 
-        static void InterpolateValues(List<(string fileName, int? value)> pRawData, ref List<(string fileName, int? value)> rCorrectedData, int pStart, int pEnd)
+        static void InterpolateValues(ref TelemetryRecord rTelemetryRecord, int pStart, int pEnd)
         {
-            int knownValueBefore = pStart > 0 && pRawData[pStart - 1].value != null ? pRawData[pStart - 1].value!.Value : 0;
-            int knownValueAfter = pRawData[pEnd].value!.Value;
+            int knownValueBefore = pStart > 0 && rTelemetryRecord.correctedData[pStart - 1].value != null ? rTelemetryRecord.correctedData[pStart - 1].value!.Value : 0;
+            int knownValueAfter = rTelemetryRecord.correctedData[pEnd].value!.Value;
             int nullCount = pEnd - pStart;
 
             float step = (float) (knownValueAfter - knownValueBefore) / (nullCount + 1);
             for (int i = 0; i < nullCount; i++)
             {
-                rCorrectedData[pStart + i] = (pRawData[pStart + i].fileName, knownValueBefore + (int) (step * (i + 1)));
+                rTelemetryRecord.correctedData[pStart + i] = (rTelemetryRecord.correctedData[pStart + i].fileName, knownValueBefore + (int) (step * (i + 1)));
             }
         }
 
-        static void HandleOutliers(List<(string fileName, int? value)> pRawData, ref List<(string fileName, int? value)> rCorrectedData, ref List<string> rLogLines)
+        static void HandleOutliers(ref TelemetryRecord rTelemetryRecord, ref List<string> rLogLines)
         {
+            var originalData = new List<(string fileName, int? value)>(rTelemetryRecord.correctedData);
+
             List<int> lastValues = new List<int>();
             List<(int oldValue, int index)> outlierIndexes = new List<(int, int)>();
 
-            double allowedErrorMarginMultiplier = 10;
-            for (int i = 0; i < pRawData.Count; i++)
+            double allowedErrorMarginMultiplier = 1;
+            for (int i = 0; i < rTelemetryRecord.correctedData.Count; i++)
             {
-                if (lastValues.Count == 0 && pRawData.Count > 1) { lastValues.Add((int) pRawData[i + 1].value! - (int) pRawData[i].value!); continue; } // if the first value is an outlier, there's nothing we can do.
+                if (lastValues.Count == 0 && rTelemetryRecord.correctedData.Count > 1) { lastValues.Add((int) rTelemetryRecord.correctedData[i + 1].value! - (int) rTelemetryRecord.correctedData[i].value!); continue; } // if the first value is an outlier, there's nothing we can do.
                 var movingAverage = lastValues.Average();
                 int lastValidIndex = i - 1;
                 while (lastValidIndex >= 0 && outlierIndexes.Any(outlier => outlier.index == lastValidIndex)) lastValidIndex--;
                 if (lastValidIndex < 0) continue;
-                var delta = ((int) pRawData[i].value! - (int) pRawData[lastValidIndex].value!) / (i - lastValidIndex);
+                var delta = ((int) rTelemetryRecord.correctedData[i].value! - (int) rTelemetryRecord.correctedData[lastValidIndex].value!);
 
-                if (Math.Abs(Math.Abs(movingAverage) - Math.Abs(delta)) > Math.Max(Math.Abs(movingAverage), 0.5) * allowedErrorMarginMultiplier)
+                if (Math.Abs(Math.Abs(movingAverage) - Math.Abs(delta)) > Math.Max(Math.Abs(movingAverage * (i - lastValidIndex)), 1) * allowedErrorMarginMultiplier)
                 {
-                    outlierIndexes.Add(((int) pRawData[i].value!, i));
+                    outlierIndexes.Add(((int) originalData[i].value!, i));
                 }
                 else
                 {
@@ -130,7 +130,7 @@ namespace StarshipTelemetryExtractor
             int start = -1, end = -1;
             var outlierIndexesList = outlierIndexes.Select(i => i.index);
 
-            for (int i = 0; i < pRawData.Count; i++)
+            for (int i = 0; i < rTelemetryRecord.correctedData.Count; i++)
             {
                 if (outlierIndexesList.Contains(i))
                 {
@@ -139,7 +139,7 @@ namespace StarshipTelemetryExtractor
                 else if (start != -1)
                 {
                     end = i;
-                    InterpolateValues(pRawData, ref rCorrectedData, start, end);
+                    InterpolateValues(ref rTelemetryRecord, start, end);
                     start = end = -1;
                 }
             }
@@ -148,7 +148,7 @@ namespace StarshipTelemetryExtractor
                 Console.WriteLine($"Found {outlierIndexes.Count} outlier(s), attempting to correct.");
                 foreach (var i in outlierIndexes)
                 {
-                    rLogLines.Add($"Corrected {pRawData[i.index].fileName} from: \"{i.oldValue}\" to: {rCorrectedData[i.index].value}");
+                    rLogLines.Add($"Corrected {rTelemetryRecord.correctedData[i.index].fileName} from: \"{i.oldValue}\" to: {rTelemetryRecord.correctedData[i.index].value}");
                 }
             }
         }

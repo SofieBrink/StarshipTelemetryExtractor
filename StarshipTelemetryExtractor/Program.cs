@@ -33,7 +33,7 @@ namespace StarshipTelemetryExtractor
 
             if (!Directory.Exists(InputPath)) { Console.WriteLine($"Inputpath: {InputPath} is invalid"); return; }
             if (!Directory.Exists(OutputPath)) { Console.WriteLine($"Outputpath: {OutputPath} is invalid"); return; }
-            if (!File.Exists(OutputPath + "\\Output.log")) File.Delete(OutputPath + "\\Output.log");
+            if (File.Exists(OutputPath + "\\Output.log")) File.Delete(OutputPath + "\\Output.log");
 
             bool getFrames;
             if (Directory.GetDirectories(OutputPath).Contains(OutputPath + "\\Frames"))
@@ -132,12 +132,12 @@ namespace StarshipTelemetryExtractor
                 foreach (var folder in Directory.GetDirectories(OutputPath + "\\Frames"))
                 {
                     var fileName = Path.GetFileName(folder);
-                    ScreenReader.GetTelemetryData(ocr, folder, out var rawData, out var correctedData, out var tmpLog); // pls async
-                    TelemetryData.Add(fileName, new TelemetryRecord { rawData = rawData, correctedData = correctedData });
+                    var output = ScreenReader.GetTelemetryData(ocr, folder);
+                    TelemetryData.Add(fileName, output.record);
                     using (StreamWriter writer = new StreamWriter(OutputPath + "\\Output.log", true))
                     {
                         writer.WriteLine(fileName + ":");
-                        foreach (var row in tmpLog)
+                        foreach (var row in output.logLines)
                         {
                             writer.WriteLine(row);
                         }
