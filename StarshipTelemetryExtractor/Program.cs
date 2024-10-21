@@ -7,6 +7,12 @@ using System.Text;
 
 namespace StarshipTelemetryExtractor
 {
+    public class TelemetryRecord
+    {
+        public List<(string fileName, int? value)> rawData { get; set; } = new List<(string, int?)>();
+        public List<(string fileName, int? value)> correctedData { get; set; } = new List<(string, int?)>();
+    }
+
     internal class Program
     {
         static void Main(string[] args)
@@ -23,7 +29,7 @@ namespace StarshipTelemetryExtractor
               , { "StarshipAltitude", new Vector4(1542, 947, 90, 33) }
               , { "StarshipVelocity", new Vector4(1542, 912, 90, 33) }
             };
-            Dictionary<string, (List<(string fileName, int? value)> rawData, List<(string fileName, int? value)> correctedData)> TelemetryData;
+            Dictionary<string, TelemetryRecord> TelemetryData;
 
             if (!Directory.Exists(InputPath)) { Console.WriteLine($"Inputpath: {InputPath} is invalid"); return; }
             if (!Directory.Exists(OutputPath)) { Console.WriteLine($"Outputpath: {OutputPath} is invalid"); return; }
@@ -50,11 +56,11 @@ namespace StarshipTelemetryExtractor
 
             if (getFrames)
             {
-                // logic to allow user to select telemetry data out of the video stream themselves.
+                // TODO: logic to allow user to select telemetry data out of the video stream themselves.
                 string videoFile = string.Empty;
                 int startingSecond = 0;
                 int secondsToGrab = 0;
-                int fps = 1;
+                int fps = 30;
 
                 Console.WriteLine("What video file should we get the data from?");
                 while (true)
@@ -77,13 +83,14 @@ namespace StarshipTelemetryExtractor
                     if (int.TryParse(tmp, out secondsToGrab) && secondsToGrab > 0) break;
                     else Console.WriteLine("Invalid input!");
                 }
-                Console.WriteLine("At what framerate should we gather data? leave empty for 1fps");
-                while (true)
-                {
-                    var tmp = Console.ReadLine();
-                    if ((string.IsNullOrWhiteSpace(tmp) || int.TryParse(tmp, out fps)) && fps > 0) break;
-                    else Console.WriteLine("Invalid input!");
-                }
+                // Just locking to 30fps for now, makes everthing easier.
+                //Console.WriteLine("At what framerate should we gather data? leave empty for 1fps");
+                //while (true)
+                //{
+                //    var tmp = Console.ReadLine();
+                //    if ((string.IsNullOrWhiteSpace(tmp) || int.TryParse(tmp, out fps)) && fps > 0) break;
+                //    else Console.WriteLine("Invalid input!");
+                //}
 
                 List<Task<int>> ffmpegs = new List<Task<int>>();
 
@@ -121,13 +128,13 @@ namespace StarshipTelemetryExtractor
                 var ocr = OcrApi.Create();
                 ocr.Init();
 
-                TelemetryData = new Dictionary<string, (List<(string fileName, int? value)> rawData, List<(string fileName, int? value)> correctedData)>();
+                TelemetryData = new Dictionary<string, TelemetryRecord>();
                 foreach (var folder in Directory.GetDirectories(OutputPath + "\\Frames"))
                 {
                     var fileName = Path.GetFileName(folder);
                     ScreenReader.GetTelemetryData(ocr, folder, out var rawData, out var correctedData, out var tmpLog); // pls async
-                    TelemetryData.Add(fileName, (rawData, correctedData));
-                    using (StreamWriter writer = new StreamWriter(OutputPath + "\\Output.log"))
+                    TelemetryData.Add(fileName, new TelemetryRecord { rawData = rawData, correctedData = correctedData });
+                    using (StreamWriter writer = new StreamWriter(OutputPath + "\\Output.log", true))
                     {
                         writer.WriteLine(fileName + ":");
                         foreach (var row in tmpLog)
@@ -140,52 +147,12 @@ namespace StarshipTelemetryExtractor
                 ocr.Dispose();
 
                 Console.WriteLine("Formatting data...");
-
-                var headerRow = new StringBuilder("FileName");
-                var rows = new List<string>();
-
-                var uniqueFileNames = TelemetryData
-                    .SelectMany(data => data.Value.rawData.Concat(data.Value.correctedData))
-                    .Select(file => file.fileName)
-                    .Distinct()
-                    .OrderBy(x => x)
-                    .ToList();
-
-                foreach (var kvp in TelemetryData)
-                {
-                    headerRow.Append($", {kvp.Key}_Raw");
-                    headerRow.Append($", {kvp.Key}_Corrected");
-                }
-
-                foreach (var fileName in uniqueFileNames)
-                {
-                    var row = new StringBuilder(fileName);
-                    foreach (var kvp in TelemetryData)
-                    {
-                        var telemetry = kvp.Value;
-
-                        var rawValue = telemetry.rawData.FirstOrDefault(v => v.fileName == fileName, ("", null)).value;
-                        var correctedValue = telemetry.correctedData.FirstOrDefault(v => v.fileName == fileName, ("", null)).value;
-
-                        row.Append($", {rawValue}");
-                        row.Append($", {correctedValue}");
-                    }
-                    rows.Add(row.ToString());
-                }
-
-                Console.WriteLine("Writing data to RawData.csv...");
-                using (StreamWriter writer = new StreamWriter(OutputPath + "\\RawData.csv"))
-                {
-                    writer.WriteLine(headerRow);
-                    foreach (var row in rows)
-                    {
-                        writer.WriteLine(row);
-                    }
-                }
+                FileIO.WriteToCSV(OutputPath + "\\RawData.csv", TelemetryData);
             }
             else
             {
-                // todo read from csv
+                Console.WriteLine("Reading data...");
+                TelemetryData = FileIO.ReadFromCSV(OutputPath + "\\RawData.csv");
             }
 
             Console.WriteLine($"Done, took {Math.Round((DateTime.Now - startTime).TotalSeconds, 1)}s including awaiting input.");
