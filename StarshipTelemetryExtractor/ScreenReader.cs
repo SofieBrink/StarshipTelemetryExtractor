@@ -121,7 +121,7 @@ namespace StarshipTelemetryExtractor
             List<(int oldValue, int index)> outlierIndexes = new List<(int, int)>();
             HashSet<int> outlierIndexesSet = new HashSet<int>();
 
-            double allowedErrorMarginMultiplier = 5;
+            double allowedErrorMarginMultiplier = 8;
 
             for (int i = 0; i < rTelemetryRecord.correctedData.Count; i++)
             {
