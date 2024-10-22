@@ -13,8 +13,7 @@ namespace StarshipTelemetryExtractor
     {
         static void Main(string[] args)
         {
-            string InputPath = args.Length > 0 ? args[0] : "C:\\Users\\Sofie\\Desktop\\tmpfolder\\frames";
-            string OutputPath = args.Length > 1 ? args[1] : "C:\\Users\\Sofie\\Desktop\\IFT-5 Flight Data";
+            string OutputPath = args.Length > 0 ? args[0] : "C:\\Users\\Sofie\\Desktop\\IFT-5 Flight Data";
 
             DateTime startTime = DateTime.Now;
             Dictionary<string, Vector4> telemetryPositions;
@@ -25,9 +24,8 @@ namespace StarshipTelemetryExtractor
               , { "StarshipAltitude", new Vector4(1542, 947, 90, 33) }
               , { "StarshipVelocity", new Vector4(1542, 912, 90, 33) }
             };
-            Dictionary<string, TelemetryRecord> TelemetryData;
+            Dictionary<string, TelemetryRecord> TelemetryData = new Dictionary<string, TelemetryRecord>();
 
-            if (!Directory.Exists(InputPath)) { Console.WriteLine($"Inputpath: {InputPath} is invalid"); return; }
             if (!Directory.Exists(OutputPath)) { Console.WriteLine($"Outputpath: {OutputPath} is invalid"); return; }
             if (File.Exists(OutputPath + "\\Output.log")) File.Delete(OutputPath + "\\Output.log");
 
@@ -121,31 +119,51 @@ namespace StarshipTelemetryExtractor
 
             if (getRawData)
             {
-                var ocr = new TesseractEngine(@"C:\Program Files\Tesseract-OCR\tessdata", "eng", EngineMode.Default);
-                ocr.SetVariable("tessedit_numeric_only", "1");
-                ocr.SetVariable("classify_bln_numeric_mode", "1");
-                ocr.SetVariable("load_system_dawg", "0");
-                ocr.SetVariable("load_freq_dawg", "0");
+                var folders = Directory.GetDirectories(OutputPath + "\\Frames");
+                object logLock = new object();
 
-                TelemetryData = new Dictionary<string, TelemetryRecord>();
-                foreach (var folder in Directory.GetDirectories(OutputPath + "\\Frames"))
+                Parallel.ForEach(folders, folder =>
                 {
-                    var fileName = Path.GetFileName(folder);
-                    var output = ScreenReader.GetTelemetryData(ocr, folder);
-                    TelemetryData.Add(fileName, output.record);
-                    using (StreamWriter writer = new StreamWriter(OutputPath + "\\Output.log", true))
+                    // Create a separate instance of TesseractEngine for each thread
+                    var ocrThreadLocal = new TesseractEngine(@"C:\Program Files\Tesseract-OCR\tessdata", "eng", EngineMode.Default);
+                    ocrThreadLocal.SetVariable("tessedit_char_whitelist", "0123456789");
+                    ocrThreadLocal.SetVariable("tessedit_numeric_only", "1");
+                    ocrThreadLocal.SetVariable("classify_bln_numeric_mode", "1");
+                    ocrThreadLocal.SetVariable("load_system_dawg", "0");
+                    ocrThreadLocal.SetVariable("load_freq_dawg", "0");
+                    ocrThreadLocal.SetVariable("debug_file", "nul");
+
+                    try
                     {
-                        writer.WriteLine(fileName + ":");
-                        foreach (var row in output.logLines)
+                        var fileName = Path.GetFileName(folder);
+
+                        var output = ScreenReader.GetTelemetryData(ocrThreadLocal, folder);
+
+                        lock (TelemetryData)
                         {
-                            writer.WriteLine(row);
+                            TelemetryData.Add(fileName, output.record);
+                        }
+
+                        lock (logLock)
+                        {
+                            using (StreamWriter writer = new StreamWriter(OutputPath + "\\Output.log", true))
+                            {
+                                writer.WriteLine(fileName + ":");
+                                foreach (var row in output.logLines)
+                                {
+                                    writer.WriteLine(row);
+                                }
+                            }
                         }
                     }
-                }
-
-                ocr.Dispose();
+                    finally
+                    {
+                        ocrThreadLocal.Dispose();
+                    }
+                });
 
                 Console.WriteLine("Formatting data...");
+                TelemetryData = TelemetryData.OrderBy(kvp => kvp.Key).ToDictionary(); // Order telemetry values alphabetically.
                 FileIO.WriteToCSV(OutputPath + "\\RawData.csv", TelemetryData);
             }
             else

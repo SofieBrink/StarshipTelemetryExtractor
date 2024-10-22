@@ -8,7 +8,7 @@ namespace StarshipTelemetryExtractor
         //TODO: fix these methods, they're both bigger than they should be, do more than they should, and aren't described by their names properly.
         public static void WriteToCSV(string pFilePath, Dictionary<string, TelemetryRecord> pTelemetry)
         {
-            var headerRow = new StringBuilder("FileName");
+            var headerRow = new StringBuilder("MissionTime, FileName");
             var rows = new ConcurrentBag<string>();
             var uniqueFileNames = pTelemetry
                 .SelectMany(data => data.Value.rawData.Concat(data.Value.correctedData))
@@ -35,7 +35,7 @@ namespace StarshipTelemetryExtractor
 
             Parallel.ForEach(uniqueFileNames, fileName =>
             {
-                var row = new StringBuilder(fileName);
+                var row = new StringBuilder($"=(ROW()-1)/(30*86400), {fileName}");
                 foreach (var kvp in pTelemetry)
                 {
                     var rawValue = rawLookup[kvp.Key].TryGetValue(fileName, out var raw) ? raw : null;

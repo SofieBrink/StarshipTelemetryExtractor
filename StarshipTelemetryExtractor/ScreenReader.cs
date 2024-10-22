@@ -77,17 +77,26 @@ namespace StarshipTelemetryExtractor
                 if (rTelemetryRecord.rawData[i].value == null)
                 {
                     if (start == -1) start = i;
+                    validCount = 0;
                 }
                 else if (start != -1)
                 {
-                    if (start == 0 && validCount < 5)
+                    if (start == 0)
                     {
                         validCount++;
-                        continue;
+                        if (validCount < 5) continue;
+                        end = i;
+                        InterpolateValues(ref rTelemetryRecord, start, end);
+                        validCount = 0;
                     }
-                    else if (start == 0) validCount = 0;
-                    end = i;
-                    InterpolateValues(ref rTelemetryRecord, start, end);
+                    else
+                    {
+                        validCount++;
+                        if (validCount < 5) continue;
+                        end = i - validCount + 1;
+                        InterpolateValues(ref rTelemetryRecord, start, end);
+                        validCount = 0;
+                    }
                     start = end = -1;
                 }
             }
@@ -112,7 +121,7 @@ namespace StarshipTelemetryExtractor
             List<(int oldValue, int index)> outlierIndexes = new List<(int, int)>();
             HashSet<int> outlierIndexesSet = new HashSet<int>();
 
-            double allowedErrorMarginMultiplier = 1;
+            double allowedErrorMarginMultiplier = 5;
 
             for (int i = 0; i < rTelemetryRecord.correctedData.Count; i++)
             {
